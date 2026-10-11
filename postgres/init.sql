@@ -1,0 +1,18 @@
+CREATE SCHEMA clientes;
+CREATE SCHEMA cuentas;
+CREATE SCHEMA pagos;
+CREATE SCHEMA auditoria;
+CREATE SCHEMA batch;
+CREATE TABLE clientes.clientes(id BIGSERIAL PRIMARY KEY,rut VARCHAR(20) UNIQUE NOT NULL,nombre VARCHAR(150) NOT NULL,email VARCHAR(200) NOT NULL);
+INSERT INTO clientes.clientes(id,rut,nombre,email) VALUES(1,'11111111-1','Cliente de prueba','cliente@example.com');
+SELECT setval(pg_get_serial_sequence('clientes.clientes','id'),1,true);
+CREATE TABLE cuentas.cuentas(id BIGSERIAL PRIMARY KEY,cliente_id BIGINT NOT NULL,tipo VARCHAR(20) NOT NULL CHECK(tipo IN ('AHORRO','PRESTAMO')),saldo NUMERIC(15,2) NOT NULL CHECK(saldo>=0),estado VARCHAR(20) NOT NULL CHECK(estado IN ('ACTIVA','CERRADA')));
+INSERT INTO cuentas.cuentas(id,cliente_id,tipo,saldo,estado) VALUES(101,1,'AHORRO',10000,'ACTIVA'),(102,1,'AHORRO',5000,'ACTIVA');
+SELECT setval(pg_get_serial_sequence('cuentas.cuentas','id'),102,true);
+CREATE TABLE cuentas.operaciones_cuenta(id UUID PRIMARY KEY,cuenta_id BIGINT NOT NULL,destino_id BIGINT,monto NUMERIC(15,2) NOT NULL CHECK(monto>0),tipo VARCHAR(20) NOT NULL,creado TIMESTAMP NOT NULL DEFAULT NOW());
+CREATE TABLE pagos.pagos(id UUID PRIMARY KEY,cuenta_id BIGINT NOT NULL,destino_id BIGINT,monto NUMERIC(15,2) NOT NULL CHECK(monto>0),tipo VARCHAR(20) NOT NULL,estado VARCHAR(20) NOT NULL,motivo VARCHAR(250),publicado BOOLEAN NOT NULL DEFAULT false,creado TIMESTAMP NOT NULL DEFAULT NOW());
+CREATE INDEX pagos_pendientes ON pagos.pagos(estado,publicado,creado);
+CREATE TABLE auditoria.eventos(evento_id VARCHAR(100) PRIMARY KEY,topico VARCHAR(100) NOT NULL,contenido TEXT NOT NULL,recibido TIMESTAMP NOT NULL DEFAULT NOW());
+CREATE TABLE batch.batch_datos(conjunto VARCHAR(30) NOT NULL,proceso VARCHAR(30) NOT NULL,fila INTEGER NOT NULL,registro_id BIGINT NOT NULL,fecha DATE,monto NUMERIC(15,2) NOT NULL,tipo VARCHAR(30) NOT NULL,nombre VARCHAR(150),edad INTEGER,descripcion VARCHAR(250),tasa NUMERIC(8,6),interes NUMERIC(15,2),original TEXT NOT NULL,PRIMARY KEY(conjunto,proceso,fila));
+CREATE INDEX batch_resumen ON batch.batch_datos(conjunto,proceso,registro_id,fecha);
+CREATE TABLE batch.batch_rechazos(conjunto VARCHAR(30) NOT NULL,proceso VARCHAR(30) NOT NULL,fila INTEGER NOT NULL,motivo VARCHAR(250) NOT NULL,original TEXT,PRIMARY KEY(conjunto,proceso,fila));

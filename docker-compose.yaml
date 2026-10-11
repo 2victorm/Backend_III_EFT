@@ -1,0 +1,365 @@
+name: banco-xyz-eft
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: banco_eft
+      POSTGRES_USER: banco
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-eft-demo-2026}
+    ports:
+    - 127.0.0.1:5433:5432
+    volumes:
+    - postgres-data:/var/lib/postgresql/data
+    - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U banco -d banco_eft
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  kafka:
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    volumes:
+    - kafka-data:/tmp/kraft-combined-logs
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+  auth-server:
+    build: ./auth-server
+    ports:
+    - 127.0.0.1:9000:9000
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      WEB_SECRET: ${WEB_SECRET:-web-demo-2026}
+      MOVIL_SECRET: ${MOVIL_SECRET:-movil-demo-2026}
+      CAJERO_SECRET: ${CAJERO_SECRET:-cajero-demo-2026}
+      CONSULTA_SECRET: ${CONSULTA_SECRET:-consulta-demo-2026}
+      SERVICIOS_SECRET: ${SERVICIOS_SECRET:-servicios-demo-2026}
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fksS
+      - http://localhost:9000/.well-known/oauth-authorization-server
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    restart: unless-stopped
+  config-server:
+    build: ./config-server
+    ports:
+    - 127.0.0.1:8888:8888
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fksS
+      - http://admin:admin@localhost:8888/ms-cuentas/default
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    restart: unless-stopped
+  discovery-server:
+    build: ./discovery-server
+    ports:
+    - 127.0.0.1:8761:8761
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fksS
+      - http://eureka:eureka2026@localhost:8761/
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    restart: unless-stopped
+  ms-clientes:
+    build: ./ms-clientes
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      CONFIG_URL: http://config-server:8888
+      EUREKA_URL: http://eureka:eureka2026@discovery-server:8761/eureka/
+      OAUTH_ISSUER: http://localhost:9000
+      OAUTH_JWKS: http://auth-server:9000/oauth2/jwks
+      DB_URL: jdbc:postgresql://postgres:5432/banco_eft
+      DB_USER: banco
+      DB_PASSWORD: ${DB_PASSWORD:-eft-demo-2026}
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      auth-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fkSs
+      - http://localhost:8090/actuator/health
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 50s
+    restart: unless-stopped
+  ms-cuentas:
+    build: ./ms-cuentas
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      CONFIG_URL: http://config-server:8888
+      EUREKA_URL: http://eureka:eureka2026@discovery-server:8761/eureka/
+      OAUTH_ISSUER: http://localhost:9000
+      OAUTH_JWKS: http://auth-server:9000/oauth2/jwks
+      DB_URL: jdbc:postgresql://postgres:5432/banco_eft
+      DB_USER: banco
+      DB_PASSWORD: ${DB_PASSWORD:-eft-demo-2026}
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      auth-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fkSs
+      - http://localhost:8091/actuator/health
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 50s
+    restart: unless-stopped
+  ms-pagos:
+    build: ./ms-pagos
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      CONFIG_URL: http://config-server:8888
+      EUREKA_URL: http://eureka:eureka2026@discovery-server:8761/eureka/
+      OAUTH_ISSUER: http://localhost:9000
+      OAUTH_JWKS: http://auth-server:9000/oauth2/jwks
+      DB_URL: jdbc:postgresql://postgres:5432/banco_eft
+      DB_USER: banco
+      DB_PASSWORD: ${DB_PASSWORD:-eft-demo-2026}
+      KAFKA_SERVERS: kafka:9092
+      AUTH_URL: http://auth-server:9000
+      SERVICIOS_SECRET: ${SERVICIOS_SECRET:-servicios-demo-2026}
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      auth-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fkSs
+      - http://localhost:8092/actuator/health
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 50s
+    restart: unless-stopped
+  ms-notificaciones:
+    build: ./ms-notificaciones
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      CONFIG_URL: http://config-server:8888
+      EUREKA_URL: http://eureka:eureka2026@discovery-server:8761/eureka/
+      OAUTH_ISSUER: http://localhost:9000
+      OAUTH_JWKS: http://auth-server:9000/oauth2/jwks
+      DB_URL: jdbc:postgresql://postgres:5432/banco_eft
+      DB_USER: banco
+      DB_PASSWORD: ${DB_PASSWORD:-eft-demo-2026}
+      KAFKA_SERVERS: kafka:9092
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      auth-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fkSs
+      - http://localhost:8093/actuator/health
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 50s
+    restart: unless-stopped
+    ports:
+    - 127.0.0.1:8093:8093
+  banco-batch:
+    build: ./banco-batch
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      CONFIG_URL: http://config-server:8888
+      EUREKA_URL: http://eureka:eureka2026@discovery-server:8761/eureka/
+      OAUTH_ISSUER: http://localhost:9000
+      OAUTH_JWKS: http://auth-server:9000/oauth2/jwks
+      DB_URL: jdbc:postgresql://postgres:5432/banco_eft
+      DB_USER: banco
+      DB_PASSWORD: ${DB_PASSWORD:-eft-demo-2026}
+      BATCH_RUTA: /app/datos
+      BATCH_CONJUNTO: ${BATCH_CONJUNTO:-semana_1}
+      BATCH_LOTE: ${BATCH_LOTE:-eft-v1}
+      BATCH_HILOS: ${BATCH_HILOS:-2}
+      BATCH_CHUNK: ${BATCH_CHUNK:-100}
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      auth-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fkSs
+      - http://localhost:8094/actuator/health
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 50s
+    restart: on-failure:3
+    ports:
+    - 127.0.0.1:8094:8094
+    volumes:
+    - ./datos:/app/datos:ro
+  bff-web:
+    build: ./bff-web
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      CONFIG_URL: http://config-server:8888
+      EUREKA_URL: http://eureka:eureka2026@discovery-server:8761/eureka/
+      OAUTH_ISSUER: http://localhost:9000
+      OAUTH_JWKS: http://auth-server:9000/oauth2/jwks
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      auth-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fkSs
+      - https://localhost:8443/actuator/health
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 50s
+    restart: unless-stopped
+    ports:
+    - 127.0.0.1:8443:8443
+  bff-movil:
+    build: ./bff-movil
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      CONFIG_URL: http://config-server:8888
+      EUREKA_URL: http://eureka:eureka2026@discovery-server:8761/eureka/
+      OAUTH_ISSUER: http://localhost:9000
+      OAUTH_JWKS: http://auth-server:9000/oauth2/jwks
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      auth-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fkSs
+      - https://localhost:8444/actuator/health
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 50s
+    restart: unless-stopped
+    ports:
+    - 127.0.0.1:8444:8444
+  bff-cajero:
+    build: ./bff-cajero
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      CONFIG_URL: http://config-server:8888
+      EUREKA_URL: http://eureka:eureka2026@discovery-server:8761/eureka/
+      OAUTH_ISSUER: http://localhost:9000
+      OAUTH_JWKS: http://auth-server:9000/oauth2/jwks
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      auth-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fkSs
+      - https://localhost:8445/actuator/health
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 50s
+    restart: unless-stopped
+    ports:
+    - 127.0.0.1:8445:8445
+volumes:
+  postgres-data: {}
+  kafka-data: {}
