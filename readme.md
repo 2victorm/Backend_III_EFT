@@ -66,8 +66,6 @@ para cada canal.
 
 - [Instrucciones de ejecución y pruebas](instrucciones.md)
 - [Procedimiento de despliegue en AWS](despliegue.md)
-- Informe técnico PDF con arquitectura y evidencias.
-- Video de presentación y demostración.
 
 ## Resultados
 
